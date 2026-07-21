@@ -356,15 +356,20 @@ class BoilerController:
         while True:
             try:
                 if not self._polling_suspended:
+                    # Fetch system info first: entities (incl. Device Info's
+                    # firmware version) refresh off the status dispatcher
+                    # signal below, so _system_status must already reflect
+                    # this cycle's data by the time that signal fires -
+                    # otherwise they'd always be one cycle behind.
+                    system = await self.device_client.async_get_system()
+                    if system is not None:
+                        self._system_status = system
+
                     status = await self.device_client.async_get_status()
                     if status is not None:
                         self._device_status = status
                         self._update_cached_brightness(status)
                         async_dispatcher_send(self.hass, self._dispatcher_signal, status)
-
-                    system = await self.device_client.async_get_system()
-                    if system is not None:
-                        self._system_status = system
 
                 await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
@@ -413,6 +418,17 @@ class BoilerController:
             _LOGGER.error("Error setting BC heating percentage: %s", err)
 
     @property
+    def device_firmware_version(self) -> str:
+        """Return the device's own reported firmware version (system.firmwareVersion).
+
+        Not to be confused with ``integration_version`` (the HACS package
+        version) - this is what should show as "Firmware" in the Device Info
+        card, matching how the P1 meter already does it.
+        """
+        system = (self._system_status or {}).get("system", {})
+        return str(system.get("firmwareVersion", "Unknown"))
+
+    @property
     def device_info(self):
         """Return device information."""
         return {
@@ -420,7 +436,7 @@ class BoilerController:
             "name": self.config_entry.title,
             "manufacturer": "Powerbaas",
             "model": "Boiler Controller",
-            "sw_version": str(self.integration_version),
+            "sw_version": self.device_firmware_version,
         }
 
     def get_status(self):

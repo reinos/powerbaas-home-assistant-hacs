@@ -91,5 +91,5 @@ class BoilerControllerModeSelect(SelectEntity):
             "name": self.config_entry.title,
             "manufacturer": "Powerbaas",
             "model": "Boiler Controller",
-            "sw_version": str(self.controller.integration_version),
+            "sw_version": self.controller.device_firmware_version,
         }

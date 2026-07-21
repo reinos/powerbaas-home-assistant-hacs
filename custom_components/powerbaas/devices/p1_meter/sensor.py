@@ -31,7 +31,6 @@ def _parse_timestamp(value):
 
 async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
-    host_url = hass.data[DOMAIN][entry.entry_id]["host"]
     device_name = hass.data[DOMAIN][entry.entry_id]["name"]
 
     entities = []
@@ -42,7 +41,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
                 coordinator,
                 entry.entry_id,
                 device_name,
-                host_url,
                 name,
                 path,
                 unit,
@@ -58,7 +56,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities(entities, True)
 
 class PowerBaasSensor(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, entry_id, device_name, host_url, name, path, unit, device_class, state_class, unique_id, multiplier, entity_category=None, icon=None):
+    def __init__(self, coordinator, entry_id, device_name, name, path, unit, device_class, state_class, unique_id, multiplier, entity_category=None, icon=None):
         super().__init__(coordinator)
         self._attr_name = name
         self._path = path
@@ -71,10 +69,6 @@ class PowerBaasSensor(CoordinatorEntity, SensorEntity):
         self._multiplier = multiplier
         self._last_value = None
 
-        config_url = host_url
-        if host_url and not host_url.startswith(("http://", "https://")):
-            config_url = f"http://{host_url}"
-
         system_data = coordinator.data.get("system", {}) if coordinator.data else {}
 
         self._attr_device_info = DeviceInfo(
@@ -83,7 +77,11 @@ class PowerBaasSensor(CoordinatorEntity, SensorEntity):
             manufacturer="Powerbaas",
             model="P1 Meter",
             sw_version=str(system_data.get("firmwareVersion", "Unknown")),
-            configuration_url=config_url,
+            # Explicit None (not omitted) - entity_platform only clears a
+            # previously-stored device registry field when the key is
+            # present with value None; leaving it out entirely means "don't
+            # touch", so the stale Visit link would otherwise never go away.
+            configuration_url=None,
         )
 
     @property

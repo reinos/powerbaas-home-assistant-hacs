@@ -47,7 +47,7 @@ def _device_info(config_entry: ConfigEntry, controller) -> Dict[str, Any]:
         "name": config_entry.title,
         "manufacturer": "Powerbaas",
         "model": "Boiler Controller",
-        "sw_version": _integration_version(controller, config_entry),
+        "sw_version": controller.device_firmware_version,
     }
 
 

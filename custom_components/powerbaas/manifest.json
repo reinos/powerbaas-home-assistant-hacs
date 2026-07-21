@@ -1,12 +1,17 @@
 {
   "domain": "powerbaas",
   "name": "Powerbaas",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "documentation": "https://www.powerbaas.nl/faq/2070705_hoe-koppel-ik-powerbaas-aan-home-assistant",
   "requirements": ["aiohttp"],
   "dependencies": [],
-  "codeowners": ["@XiloXL"],
+  "codeowners": ["@XiloXL", "@reinos"],
   "iot_class": "local_polling",
+  "integration_type": "device",
   "config_flow": true,
-  "icons": ["icon.png"] 
+  "icons": ["icon.png"],
+  "zeroconf": [
+    { "type": "_http._tcp.local.", "name": "pb-bc-*" },
+    { "type": "_http._tcp.local.", "name": "powerbaas*" }
+  ]
 }

@@ -1,103 +1,64 @@
-import logging
-from urllib.parse import urlparse
+"""Config flow for the Powerbaas integration.
 
-import aiohttp
-import voluptuous as vol
+Adding a device starts with a menu asking which kind of Powerbaas device is
+being set up. Each device type's own steps live in its own package under
+``devices/`` (see P1MeterFlowMixin / BoilerControllerFlowMixin) and are mixed
+into this single ConfigFlow class, since Home Assistant only allows one
+ConfigFlow per domain.
+"""
+import logging
+
 from homeassistant import config_entries
 from homeassistant.core import callback
 
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, MIN_SCAN_INTERVAL, MAX_SCAN_INTERVAL
+from .const import DOMAIN, CONF_DEVICE_TYPE, DEVICE_TYPE_P1_METER, DEVICE_TYPE_BOILER_CONTROLLER
+from .devices.p1_meter.config_flow import P1MeterFlowMixin, P1MeterOptionsFlow
+from .devices.p1_meter.const import P1_MDNS_HOSTNAME
+from .devices.boiler_controller.config_flow import (
+    BoilerControllerFlowMixin,
+    BoilerControllerOptionsFlow,
+)
+from .devices.boiler_controller.const import BC_HOST_PREFIX
 
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_HOST = "http://192.168.x.x"
-DEFAULT_NAME = "Powerbaas"
-
-SCAN_INTERVAL_SCHEMA = vol.All(
-    vol.Coerce(int), vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL)
-)
 
 
-def _is_valid_url(url):
-    try:
-        result = urlparse(url)
-        return all([result.scheme, result.netloc])
-    except Exception:
-        return False
-
-
-async def _test_connection(host):
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(host, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                return response.status < 400
-    except Exception as err:
-        _LOGGER.debug("Connection test failed for %s: %s", host, err)
-        return False
-
-
-class PowerbaasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class PowerbaasConfigFlow(
+    P1MeterFlowMixin,
+    BoilerControllerFlowMixin,
+    config_entries.ConfigFlow,
+    domain=DOMAIN,
+):
     VERSION = 2
 
     async def async_step_user(self, user_input=None):
-        errors = {}
+        """Ask which kind of Powerbaas device is being added."""
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["p1_meter", "boiler_controller"],
+        )
 
-        if user_input is not None:
-            host = user_input["host"].rstrip("/")
-            name = user_input.get("name") or DEFAULT_NAME
+    async def async_step_zeroconf(self, discovery_info):
+        """Route Zeroconf discovery to the matching device type's flow.
 
-            if not _is_valid_url(host):
-                errors["host"] = "invalid_host"
-            elif not await _test_connection(host):
-                errors["host"] = "cannot_connect"
-            else:
-                user_input["host"] = host
-                user_input["name"] = name
-                return self.async_create_entry(title=name, data=user_input)
+        Only one class in the MRO can own ``async_step_zeroconf``, so both
+        device types' mixins expose private handlers instead
+        (``_async_zeroconf_boiler_controller`` / ``_async_zeroconf_p1_meter``)
+        and this method dispatches to the right one based on hostname.
+        """
+        hostname = (discovery_info.hostname or discovery_info.name or "").rstrip(".").split(".")[0].lower()
 
-        schema = vol.Schema({
-            vol.Required("host", default=DEFAULT_HOST): str,
-            vol.Optional("name", default=DEFAULT_NAME): str,
-            vol.Required("scan_interval", default=DEFAULT_SCAN_INTERVAL): SCAN_INTERVAL_SCHEMA,
-        })
+        if any(hostname.startswith(prefix) for prefix in BC_HOST_PREFIX):
+            return await self._async_zeroconf_boiler_controller(discovery_info)
+        if hostname == P1_MDNS_HOSTNAME:
+            return await self._async_zeroconf_p1_meter(discovery_info)
 
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+        return self.async_abort(reason="unsupported_device")
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return PowerbaasOptionsFlow()
-
-
-class PowerbaasOptionsFlow(config_entries.OptionsFlow):
-
-    async def async_step_init(self, user_input=None):
-        errors = {}
-
-        if user_input is not None:
-            host = user_input["host"].rstrip("/")
-
-            if not _is_valid_url(host):
-                errors["host"] = "invalid_host"
-            elif not await _test_connection(host):
-                errors["host"] = "cannot_connect"
-            else:
-                new_data = dict(self.config_entry.data)
-                new_data["host"] = host
-                new_data["scan_interval"] = user_input["scan_interval"]
-
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=new_data
-                )
-                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-
-                return self.async_create_entry(title="", data={})
-
-        schema = vol.Schema({
-            vol.Required("host", default=self.config_entry.data.get("host", DEFAULT_HOST)): str,
-            vol.Required(
-                "scan_interval",
-                default=self.config_entry.data.get("scan_interval", DEFAULT_SCAN_INTERVAL),
-            ): SCAN_INTERVAL_SCHEMA,
-        })
-
-        return self.async_show_form(step_id="init", data_schema=schema, errors=errors)
+        device_type = config_entry.data.get(CONF_DEVICE_TYPE, DEVICE_TYPE_P1_METER)
+        if device_type == DEVICE_TYPE_BOILER_CONTROLLER:
+            return BoilerControllerOptionsFlow(config_entry)
+        return P1MeterOptionsFlow()
